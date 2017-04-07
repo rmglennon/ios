@@ -487,9 +487,9 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
    
    - parameter marker: The marker to add to map.
    */
-  open func addMarker(_ marker: GenericMarker) {
+  open func addMarker(_ marker: GenericMarker) throws {
     currentMarkers[marker.tgMarker] = marker
-    marker.tgMarker.map = tgViewController
+    try marker.tgMarker.map(tgViewController)
   }
 
   /**
@@ -497,9 +497,9 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
 
    - parameter marker: The marker to remove from map.
    */
-  open func removeMarker(_ marker: GenericMarker) {
+  open func removeMarker(_ marker: GenericMarker) throws {
     currentMarkers.removeValue(forKey: marker.tgMarker)
-    marker.tgMarker.map = nil
+    try? marker.tgMarker.map(nil)
   }
 
   /// Removes all existing markers on the map.
@@ -675,8 +675,6 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
   open func resetCameraOnCurrentLocation(_ tilt: Float = 0.0, zoomLevel: Float = 16.0, animationDuration: Float = 1.0) -> Bool {
     guard currentLocationGem != nil else { return false }
     guard let point = lastSetPoint else { return false }
-    //TODO: handle error?
-//    if marker == 0 { return false } // Invalid Marker
     tgViewController.animate(toZoomLevel: zoomLevel, withDuration: animationDuration)
     tgViewController.animate(toPosition: point, withDuration: animationDuration)
     tgViewController.animate(toTilt: tilt, withDuration: animationDuration)
@@ -697,22 +695,29 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
    Shows or hides the current location of the device. This starts the location request process and will prompt the user the first time its called.
    
    - parameter shouldShow: Whether or not we should show the current location.
-   - returns: Whether or not current location was shown
+   - returns: Whether or not current location marker visibility was updated.
    */
   open func showCurrentLocation(_ shouldShow: Bool) -> Bool {
     shouldShowCurrentLocation = shouldShow
     guard let marker = currentLocationGem else {
       if !shouldShowCurrentLocation { return false }
-      //TODO: handle error adding to map?
       let marker = SystemPointMarker.initWithMarkerType(.currentLocation)
-      addMarker(marker)
+      try? addMarker(marker)
       currentLocationGem = marker;
       locationManager.requestWhenInUseAuthorization()
       //Set visibility to false since we have to wait until we have an accurate location
-      marker.visible = false
+      do {
+        try marker.visibile(false)
+      } catch {
+        return false
+      }
       return true
     }
-    marker.visible = shouldShowCurrentLocation
+    do {
+      try marker.visibile(shouldShowCurrentLocation)
+    } catch {
+      return false
+    }
     return true
   }
 
@@ -737,17 +742,15 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
    */
   open func add(_ annotations: [PeliasMapkitAnnotation]) throws {
     for annotation in annotations {
-      //TODO: handle error adding to map?
       let marker = SelectableSystemPointMarker.initWithMarkerType(.searchPin)
-      addMarker(marker)
-//      if newMarker == nil {
-//        //TODO: Once TG integrates better error codes, we need to integrate that here.
-//        // https://github.com/tangrams/tangram-es/issues/1219
-//        throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
-//                      code: MZError.generalError.rawValue,
-//                      userInfo: nil)
-//      }
-      marker.point = TGGeoPoint(coordinate: annotation.coordinate)
+      try? addMarker(marker)
+      do {
+        try marker.point(TGGeoPoint(coordinate: annotation.coordinate))
+      } catch {
+        throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
+                      code: MZError.generalError.rawValue,
+                      userInfo: nil)
+      }
       currentAnnotations[annotation] = marker.tgMarker
     }
   }
@@ -760,13 +763,13 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
    */
   open func remove(_ annotation: PeliasMapkitAnnotation) throws {
     guard let marker = currentAnnotations[annotation] else { return }
-    marker.map = nil
-    //TODO: handle marker remove error?
-//    if !tgViewController.markerRemove(markerId) {
-//      throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
-//                    code: MZError.annotationDoesNotExist.rawValue,
-//                    userInfo: nil)
-//    }
+    do {
+      try marker.map(nil)
+    } catch {
+      throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
+                    code: MZError.annotationDoesNotExist.rawValue,
+                    userInfo: nil)
+    }
     currentAnnotations.removeValue(forKey: annotation)
   }
 
@@ -777,13 +780,13 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
    */
   open func removeAnnotations() throws {
     for (annotation, marker) in currentAnnotations {
-      marker.map = nil
-      //TODO: handle marker remove error?
-//      if !tgViewController.markerRemove(markerId) {
-//        throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
-//                      code: MZError.annotationDoesNotExist.rawValue,
-//                      userInfo: nil)
-//      }
+      do {
+        try marker.map(nil)
+      } catch {
+        throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
+                      code: MZError.annotationDoesNotExist.rawValue,
+                      userInfo: nil)
+      }
       currentAnnotations.removeValue(forKey: annotation)
     }
   }
@@ -800,8 +803,7 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
       //We don't throw if the remove fails here because we want to silently replace the route
       currentRouteMarker = nil
       currentRoute = nil
-      //TODO: handle marker remove error?
-      removeMarker(routeMarker)
+      try removeMarker(routeMarker)
     }
     let routeLeg = route.legs[0]
     let polyLine = TGGeoPolyline(size: UInt32(routeLeg.coordinateCount))
@@ -812,9 +814,43 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
       print("Next Point: \(point)")
       polyLine.add(TGGeoPoint(coordinate: point!))
     }
+
+
     let marker = SystemPolylineMarker.init()
-    addMarker(marker)
-    marker.polyline = polyLine
+
+    // 1
+//    do {
+//      try marker.polyline(polyLine)
+//    } catch {
+//      print("")
+//    }
+//
+//    do {
+//      try addMarker(marker)
+//    } catch {
+//      print("")
+//    }
+
+    // 2
+    do {
+      try addMarker(marker)
+    } catch {
+      print("")
+    }
+
+    do {
+      try marker.polyline(polyLine)
+    } catch {
+      print("")
+    }
+
+
+
+
+
+    //      throw NSError(domain: MapViewController.MapzenGeneralErrorDomain,
+    //                    code: MZError.generalError.rawValue,
+    //                    userInfo: nil)
     currentRouteMarker = marker
     currentRoute = route
   }
@@ -832,7 +868,7 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
                     userInfo: nil)
     }
 
-    removeMarker(currentRouteMarker)
+    try removeMarker(currentRouteMarker)
     self.currentRouteMarker = nil
     currentRoute = nil
   }
@@ -868,13 +904,13 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
     self.currentAnnotations = Dictionary()
     for (annotation, marker) in oldAnnotations {
       let newMarker = PointMarker.init()
-      addMarker(newMarker)
+      try? addMarker(newMarker)
       //TODO: also set polyline, polygon etc
-      newMarker.point = marker.point
+      try? newMarker.point(marker.point)
       if !marker.stylingPath.isEmpty {
-        newMarker.tgMarker.stylingPath = marker.stylingPath
+        try? newMarker.tgMarker.stylingPath(marker.stylingPath)
       } else {
-        newMarker.tgMarker.stylingString = marker.stylingString
+        try? newMarker.tgMarker.stylingString(marker.stylingString)
       }
       self.currentAnnotations[annotation] = newMarker.tgMarker
     }
@@ -898,7 +934,7 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
     // Location Marker reset
     if shouldShowCurrentLocation {
       if let locGem = currentLocationGem {
-        addMarker(locGem)
+        try? addMarker(locGem)
       }
       _ = self.showCurrentLocation(true)
     }
@@ -955,7 +991,7 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
       tgViewController.gestureDelegate = nil
       tgViewController.mapViewDelegate = nil
       if let locGem = currentLocationGem {
-        removeMarker(locGem)
+        try? removeMarker(locGem)
       }
       tgViewController = TGMapViewController()
     }
@@ -969,9 +1005,9 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
       return
     }
     lastSetPoint = TGGeoPoint(longitude: location.coordinate.longitude, latitude: location.coordinate.latitude)
-    marker.point = TGGeoPoint(longitude: location.coordinate.longitude, latitude: location.coordinate.latitude)
+    try? marker.point(TGGeoPoint(longitude: location.coordinate.longitude, latitude: location.coordinate.latitude))
     if (shouldShowCurrentLocation) {
-      marker.visible = true
+      try? marker.visibile(true)
     }
 
     if (shouldFollowCurrentLocation) {
@@ -997,8 +1033,7 @@ open class MapViewController: UIViewController, LocationManagerDelegate {
   func failedLocationAuthorization() {
     shouldShowCurrentLocation = false
     guard let marker = currentLocationGem else { return }
-    //TODO: handle error?
-    removeMarker(marker)
+    try? removeMarker(marker)
     return
   }
 
